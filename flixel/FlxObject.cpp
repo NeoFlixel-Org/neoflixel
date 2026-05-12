@@ -28,6 +28,7 @@ FlxObject::FlxObject(float x, float y, float width, float height)
     , velocityY(0)
     , accelerationX(0)
     , accelerationY(0)
+    , scrollFactor(1.0f, 1.0f)
     , dragX(0)
     , dragY(0)
     , maxVelocityX(10000.0f)
@@ -43,6 +44,7 @@ FlxObject::FlxObject(float x, float y, float width, float height)
     , collisionYDrag(CollisionDragType::NEVER)
     , lastX(x)
     , lastY(y)
+    , camera(nullptr)
 {
     initVars();
 }
@@ -53,6 +55,7 @@ FlxObject::~FlxObject() {
 
 void FlxObject::initVars() {
     flixelType = FlixelType::OBJECT;
+    scrollFactor.set(1.0f, 1.0f);
 }
 
 void FlxObject::initMotionVars() {
@@ -104,11 +107,6 @@ void FlxObject::destroy() {
 }
 
 void FlxObject::updateHitbox() {}
-
-void FlxObject::setPosition(float x, float y) {
-    this->x = x;
-    this->y = y;
-}
 
 void FlxObject::reset(float x, float y) {
     touching = FlxDirectionFlags::NONE;
@@ -201,11 +199,6 @@ bool FlxObject::justTouched(FlxDirectionFlags direction) {
     return hasAny(touching, direction) && !hasAny(wasTouching, direction);
 }
 
-void FlxObject::setSize(float width, float height) {
-    this->width = width;
-    this->height = height;
-}
-
 bool FlxObject::get_solid() const {
     return (allowCollisions & FlxDirectionFlags::ANY) > FlxDirectionFlags::NONE;
 }
@@ -237,5 +230,12 @@ void FlxObject::kill() {}
 void FlxObject::revive() {}
 void FlxObject::setHitbox(float, float, float, float) {}
 void FlxObject::centerOrigin() {}
-void FlxObject::screenCenter(flixel::util::FlxAxes) {}
+void FlxObject::screenCenter(flixel::util::FlxAxes axes) {
+    if (axes == util::FlxAxes::X || axes == util::FlxAxes::XY) {
+        x = (FlxG::width - width) / 2.0f;
+    }
+    if (axes == util::FlxAxes::Y || axes == util::FlxAxes::XY) {
+        y = (FlxG::height - height) / 2.0f;
+    }
+}
 } 

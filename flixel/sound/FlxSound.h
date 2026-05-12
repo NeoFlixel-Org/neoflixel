@@ -4,8 +4,7 @@
 #include "../FlxG.h"
 #include "../math/FlxPoint.h"
 #include <string>
-#include <SDL2/SDL_mixer.h>
-#include <vorbis/vorbisfile.h>
+#include <SDL_mixer.h>
 #include <functional>
 
 namespace flixel {
@@ -26,7 +25,9 @@ public:
 
     bool loadEmbedded(const std::string& path, bool looped = false, bool autoDestroy = true);
     bool loadStream(const std::string& path, bool looped = false, bool autoDestroy = false);
+    bool loadAsChunk(const std::string& path, bool looped = false, bool autoDestroy = true);
     bool loadByteArray(const void* data, size_t size, bool looped = false, bool autoDestroy = false);
+    void setChannel(int channelToUse);
 
     void play(bool forceRestart = false, float startTime = 0.0f, float endTime = 0.0f);
     void pause();
@@ -77,9 +78,7 @@ public:
 protected:
     Mix_Chunk* chunk;
     Mix_Music* music;
-    OggVorbis_File vorbisFile;
     bool isStream;
-    bool isVorbis;
 
     float _volume;
     float _time;
@@ -101,6 +100,7 @@ protected:
     bool isFading;
 
     int channel;
+    int reservedChannel;
     bool _muted;
 
     void updateTransform();

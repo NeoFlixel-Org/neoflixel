@@ -1,5 +1,5 @@
 #pragma once
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <unordered_map>
 #include <vector>
 #include <set>
@@ -19,14 +19,24 @@ public:
     }
 
     void update() {
-        const Uint8* state = SDL_GetKeyboardState(nullptr);
         for (auto& pair : keys) {
-            bool isDown = state[pair.first] != 0;
-            pair.second.updateFromState(isDown);
+            pair.second.update();
         }
     }
 
-    void onEvent(const SDL_Event& event) {}
+    void onEvent(const SDL_Event& event) {
+        if (event.type == SDL_KEYDOWN) {
+            auto it = keys.find(event.key.keysym.scancode);
+            if (it != keys.end()) {
+                it->second.press();
+            }
+        } else if (event.type == SDL_KEYUP) {
+            auto it = keys.find(event.key.keysym.scancode);
+            if (it != keys.end()) {
+                it->second.release();
+            }
+        }
+    }
 
     std::set<SDL_Scancode> pressed() const {
         std::set<SDL_Scancode> result;

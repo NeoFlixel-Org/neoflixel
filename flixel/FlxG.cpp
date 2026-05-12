@@ -2,8 +2,13 @@
 #include "FlxGame.h"
 #include "sound/FlxSound.h"
 #include "sound/FlxSoundGroup.h"
+#include "input/FlxGamepad.h"
+#include "util/FlxTimer.h"
 #include <stdexcept>
 #include <iostream>
+#ifdef __vita__
+#include <vitaGL.h>
+#endif
 
 namespace flixel {
 
@@ -34,8 +39,11 @@ FlxG::Log FlxG::log;
 SDL_Cursor* FlxG::customCursor = nullptr;
 SDL_Surface* FlxG::cursorSurface = nullptr;
 bool FlxG::cursorVisible = true;
+std::unordered_map<std::string, SDL_Texture*> FlxG::textureCache;
 
 flixel::input::FlxKeyboard flixel::FlxG::keys;
+flixel::input::FlxGamepad flixel::FlxG::gamepads;
+flixel::util::FlxTimerManager* flixel::FlxG::timers = nullptr;
 
 void FlxG::Log::error(const std::string& message) {
     std::cerr << "[ERROR] " << message << std::endl;
@@ -49,7 +57,7 @@ void FlxG::Log::notice(const std::string& message) {
     std::cout << "[NOTICE] " << message << std::endl;
 }
 
-FlxG::SoundFrontEnd::SoundFrontEnd() : volume(1.0f), muted(false) {
+FlxG::SoundFrontEnd::SoundFrontEnd() : volume(1.0f), muted(false), music(nullptr) {
     reset();
 }
 
@@ -58,6 +66,10 @@ FlxG::SoundFrontEnd::~SoundFrontEnd() {
 }
 
 void FlxG::SoundFrontEnd::destroy() {
+    if (music) {
+        music->stop();
+        music.reset();
+    }
     stopAll();
     sounds.clear();
     groups.clear();
@@ -107,6 +119,33 @@ FlxSound* FlxG::SoundFrontEnd::play(const std::string& path, float volume, bool 
     return sound;
 }
 
+FlxSound* FlxG::SoundFrontEnd::playAsChunk(const std::string& path, float volume, bool looped, bool autoDestroy) {
+    auto sound = std::make_unique<FlxSound>();
+    if (sound->loadAsChunk(path, looped, autoDestroy)) {
+        sound->setVolume(volume);
+        sound->play();
+        sounds.push_back(std::move(sound));
+        return sounds.back().get();
+    }
+    return nullptr;
+}
+
+FlxSound* FlxG::SoundFrontEnd::playMusic(const std::string& path, float volume, bool looped) {
+    if (music) {
+        music->stop();
+    }
+    
+    music = std::make_unique<FlxSound>();
+    if (music->loadStream(path, looped, false)) {
+        music->setVolume(volume);
+        music->play();
+        return music.get();
+    }
+    
+    music.reset();
+    return nullptr;
+}
+
 void FlxG::SoundFrontEnd::stop(const std::string& path) {
     for (auto& sound : sounds) {
         if (sound->exists && sound->name == path) {
@@ -137,8 +176,6 @@ void FlxG::SoundFrontEnd::stopAll() {
             sound->stop();
         }
     }
-    Mix_HaltMusic();
-    Mix_HaltChannel(-1);
 }
 
 void FlxG::SoundFrontEnd::pauseAll() {
@@ -193,6 +230,10 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
     initialWidth = gameWidth;
     initialHeight = gameHeight;
 
+#ifdef __vita__
+    vglInitExtended(0, 960, 544, 0x1800000, SCE_GXM_MULTISAMPLE_NONE);
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         throw std::runtime_error("Failed to initialize SDL: " + std::string(SDL_GetError()));
     }
@@ -202,9 +243,9 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
         throw std::runtime_error("Failed to initialize SDL_image: " + std::string(IMG_GetError()));
     }
 
-    int mixFlags = MIX_INIT_OGG | MIX_INIT_MP3;
-    if ((Mix_Init(mixFlags) & mixFlags) != mixFlags) {
-        throw std::runtime_error("Failed to initialize SDL_mixer: " + std::string(Mix_GetError()));
+    int mixFlags = MIX_INIT_OGG;
+    if (!(Mix_Init(mixFlags) & MIX_INIT_OGG)) {
+        throw std::runtime_error("Failed to initialize SDL_mixer (OGG): " + std::string(Mix_GetError()));
     }
 
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
@@ -212,6 +253,7 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
     }
 
     Mix_AllocateChannels(32);
+    Mix_ReserveChannels(1);
 
     if (TTF_Init() < 0) {
         throw std::runtime_error("Failed to initialize SDL_ttf: " + std::string(TTF_GetError()));
@@ -234,9 +276,12 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
     if (!renderer) {
         throw std::runtime_error("Failed to create renderer: " + std::string(SDL_GetError()));
     }
+    
+    SDL_RenderSetLogicalSize(renderer, width, height);
+    SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
 
     try {
-        setCursor("assets/images/ui/cursor.png", 0, 0);
+        setCursor(ASSETS_PATH "assets/images/ui/cursor.png", 0, 0);
     }
     catch (const std::exception& e) {
         log.warn("Failed to load default cursor: " + std::string(e.what()));
@@ -246,8 +291,18 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
     worldBounds = {0, 0, static_cast<float>(width), static_cast<float>(height)};
 
     sound.reset();
+    gamepads.init();
+
+    fprintf(stderr, "[CHECKPOINT] gamepads done\n"); fflush(stderr);
+    
+    if (!timers) {
+        timers = new util::FlxTimerManager();
+    }
+
+    fprintf(stderr, "[CHECKPOINT] timers done\n"); fflush(stderr);
 
     initialized = true;
+    fprintf(stderr, "[CHECKPOINT] FlxG::init done\n"); fflush(stderr);
 }
 
 void FlxG::reset() {
@@ -260,10 +315,7 @@ void FlxG::reset() {
     sound.reset();
 }
 
-void FlxG::resizeGame(int newWidth, int newHeight) {
-    width = newWidth;
-    height = newHeight;
-}
+void FlxG::resizeGame(int newWidth, int newHeight) {}
 
 void FlxG::resizeWindow(int newWidth, int newHeight) {
     SDL_SetWindowSize(window, newWidth, newHeight);
@@ -280,17 +332,44 @@ void FlxG::setFullscreen(bool fullscreen) {
 SDL_Texture* FlxG::loadTexture(const std::string& path) {
     SDL_Surface* surface = IMG_Load(path.c_str());
     if (!surface) {
-        throw std::runtime_error("Failed to load image: " + std::string(IMG_GetError()));
+        fprintf(stderr, "[TEXTURE] IMG_Load failed for %s: %s\n", path.c_str(), IMG_GetError());
+        fflush(stderr);
+        return nullptr;
     }
 
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     SDL_FreeSurface(surface);
 
     if (!texture) {
-        throw std::runtime_error("Failed to create texture: " + std::string(SDL_GetError()));
+        fprintf(stderr, "[TEXTURE] CreateTextureFromSurface failed for %s: %s\n", path.c_str(), SDL_GetError());
+        fflush(stderr);
+        return nullptr;
     }
 
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
     return texture;
+}
+
+SDL_Texture* FlxG::loadTextureCached(const std::string& path) {
+    auto it = textureCache.find(path);
+    if (it != textureCache.end()) {
+        return it->second;
+    }
+
+    SDL_Texture* texture = loadTexture(path);
+    
+    textureCache[path] = texture;
+    
+    return texture;
+}
+
+void FlxG::clearTextureCache() {
+    for (auto& pair : textureCache) {
+        if (pair.second) {
+            SDL_DestroyTexture(pair.second);
+        }
+    }
+    textureCache.clear();
 }
 
 Mix_Chunk* FlxG::loadSound(const std::string& path) {
@@ -368,6 +447,15 @@ void FlxG::destroy() {
     if (!initialized) {
         return;
     }
+
+    clearTextureCache();
+    
+    if (timers) {
+        delete timers;
+        timers = nullptr;
+    }
+    
+    gamepads.close();
 
     if (customCursor) {
         SDL_FreeCursor(customCursor);

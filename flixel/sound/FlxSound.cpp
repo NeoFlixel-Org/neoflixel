@@ -1,8 +1,26 @@
 #include "FlxSound.h"
 #include "../FlxG.h"
 #include "../math/FlxMath.h"
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <algorithm>
+
+namespace {
+
+float mixMusicDurationMs(Mix_Music* music)
+{
+#if SDL_MIXER_VERSION_ATLEAST(2, 6, 0)
+    return static_cast<float>(Mix_MusicDuration(music) * 1000.0);
+#else
+    (void)music;
+#  if defined(__SWITCH__) || defined(__vita__)
+    return 180000.0f;
+#  else
+    return 0.0f;
+#  endif
+#endif
+}
+
+} // namespace
 
 namespace flixel {
 
@@ -10,7 +28,6 @@ FlxSound::FlxSound() :
     chunk(nullptr),
     music(nullptr),
     isStream(false),
-    isVorbis(false),
     _paused(false),
     _volume(1.0f),
     _time(0.0f),
@@ -26,7 +43,9 @@ FlxSound::FlxSound() :
     fadeDuration(0.0f),
     fadeTime(0.0f),
     isFading(false),
-    looped(false)
+    looped(false),
+    channel(-1),
+    reservedChannel(-1)
 {
     reset();
 }
@@ -58,6 +77,8 @@ void FlxSound::reset()
     amplitudeRight = 0;
     autoDestroy = false;
     _pan = 0;
+    channel = -1;
+    reservedChannel = -1;
 }
 
 void FlxSound::destroy()
@@ -73,7 +94,17 @@ void FlxSound::destroy()
 
 void FlxSound::update(float elapsed)
 {
-    if (!get_playing())
+    bool wasPlaying = playing;
+    bool isCurrentlyPlaying = get_playing();
+    
+    if (wasPlaying && !isCurrentlyPlaying)
+    {
+        playing = false;
+        stopped();
+        return;
+    }
+    
+    if (!isCurrentlyPlaying)
         return;
 
     if (isFading)
@@ -92,7 +123,13 @@ void FlxSound::update(float elapsed)
     }
 
     if (isStream)
+    {
+#ifdef __SWITCH__
+        _time += elapsed * 1000.0f;
+#else
         _time = Mix_GetMusicPosition(music) * 1000.0f;
+#endif
+    }
     else if (chunk)
         _time += elapsed * 1000.0f;
 
@@ -150,11 +187,19 @@ bool FlxSound::loadEmbedded(const std::string& path, bool looped, bool autoDestr
     if (music)
     {
         isStream = true;
-        isVorbis = path.find(".ogg") != std::string::npos;
     }
     else
     {
+#ifdef __SWITCH__
+        SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+        if (rw) {
+            chunk = Mix_LoadWAV_RW(rw, 1);
+        } else {
+            chunk = nullptr;
+        }
+#else
         chunk = Mix_LoadWAV(path.c_str());
+#endif
         if (!chunk)
         {
             FlxG::log.error("Could not load sound: " + path);
@@ -169,7 +214,7 @@ bool FlxSound::loadEmbedded(const std::string& path, bool looped, bool autoDestr
     exists = true;
     
     if (isStream)
-        _length = Mix_MusicDuration(music) * 1000.0f;
+        _length = mixMusicDurationMs(music);
     else
         _length = chunk->alen * 1000.0f / 44100.0f;
     
@@ -180,6 +225,37 @@ bool FlxSound::loadEmbedded(const std::string& path, bool looped, bool autoDestr
 bool FlxSound::loadStream(const std::string& path, bool looped, bool autoDestroy)
 {
     return loadEmbedded(path, looped, autoDestroy);
+}
+
+bool FlxSound::loadAsChunk(const std::string& path, bool looped, bool autoDestroy)
+{
+    cleanup(true);
+    
+#ifdef __SWITCH__
+    SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+    if (rw) {
+        chunk = Mix_LoadWAV_RW(rw, 1);
+    } else {
+        chunk = nullptr;
+    }
+#else
+    chunk = Mix_LoadWAV(path.c_str());
+#endif
+    if (!chunk)
+    {
+        FlxG::log.error("Could not load sound as chunk: " + path);
+        return false;
+    }
+    isStream = false;
+
+    set_looped(looped);
+    this->autoDestroy = autoDestroy;
+    updateTransform();
+    exists = true;
+    
+    _length = chunk->alen * 1000.0f / 44100.0f;
+    set_endTime(_length);
+    return true;
 }
 
 bool FlxSound::loadByteArray(const void* data, size_t size, bool looped, bool autoDestroy)
@@ -197,7 +273,6 @@ bool FlxSound::loadByteArray(const void* data, size_t size, bool looped, bool au
     if (music)
     {
         isStream = true;
-        isVorbis = true;
     }
     else
     {
@@ -216,7 +291,7 @@ bool FlxSound::loadByteArray(const void* data, size_t size, bool looped, bool au
     exists = true;
     
     if (isStream)
-        _length = Mix_MusicDuration(music) * 1000.0f;
+        _length = mixMusicDurationMs(music);
     else
         _length = chunk->alen * 1000.0f / 44100.0f;
     
@@ -244,33 +319,64 @@ void FlxSound::play(bool forceRestart, float startTime, float endTime)
 
 void FlxSound::pause()
 {
-    if (!get_playing())
+    if (paused)
         return;
 
     _time = get_time();
     _paused = true;
+    paused = true;
+    playing = false;
     
     if (isStream)
-        Mix_PauseMusic();
-    else
-        Mix_Pause(-1);
+    {
+        if (Mix_PlayingMusic())
+            Mix_PauseMusic();
+    }
+    else if (channel >= 0)
+    {
+        if (Mix_Playing(channel))
+            Mix_Pause(channel);
+    }
 }
 
 void FlxSound::resume()
 {
-    if (_paused)
+    if (!paused)
+        return;
+        
+    if (isStream)
     {
-        if (isStream)
+        if (Mix_PausedMusic())
             Mix_ResumeMusic();
-        else
-            Mix_Resume(-1);
-        _paused = false;
     }
+    else if (channel >= 0)
+    {
+        if (Mix_Paused(channel))
+            Mix_Resume(channel);
+    }
+    
+    _paused = false;
+    paused = false;
+    playing = true;
 }
 
 void FlxSound::stop()
 {
-    cleanup(autoDestroy, true);
+    if (isStream) {
+        Mix_HaltMusic();
+    } else if (channel >= 0) {
+        Mix_HaltChannel(channel);
+        channel = -1;
+    }
+    
+    playing = false;
+    paused = false;
+    _paused = false;
+    active = false;
+    
+    if (autoDestroy) {
+        cleanup(true, true);
+    }
 }
 
 void FlxSound::fadeOut(float duration, float to)
@@ -325,8 +431,10 @@ bool FlxSound::get_playing() const
 {
     if (isStream)
         return Mix_PlayingMusic() != 0;
+    else if (channel >= 0)
+        return Mix_Playing(channel) != 0;
     else
-        return Mix_Playing(-1) != 0;
+        return false;
 }
 
 float FlxSound::get_volume() const
@@ -337,7 +445,11 @@ float FlxSound::get_volume() const
 void FlxSound::setVolume(float volume)
 {
     _volume = math::bound(volume, 0.0f, 1.0f);
-    updateTransform();
+    if (!isStream && channel >= 0) {
+        Mix_Volume(channel, static_cast<int>(calcTransformVolume() * MIX_MAX_VOLUME));
+    } else {
+        updateTransform();
+    }
 }
 
 float FlxSound::get_pan() const
@@ -436,7 +548,10 @@ void FlxSound::cleanup(bool destroySound, bool resetPosition)
         }
         else if (chunk)
         {
-            Mix_HaltChannel(-1);
+            if (channel >= 0) {
+                Mix_HaltChannel(channel);
+                channel = -1;
+            }
             Mix_FreeChunk(chunk);
             chunk = nullptr;
         }
@@ -447,13 +562,16 @@ void FlxSound::cleanup(bool destroySound, bool resetPosition)
         {
             Mix_HaltMusic();
         }
-        else if (chunk)
+        else if (chunk && channel >= 0)
         {
-            Mix_HaltChannel(-1);
+            Mix_HaltChannel(channel);
+            channel = -1;
         }
     }
 
     active = false;
+    playing = false;
+    paused = false;
 
     if (resetPosition)
     {
@@ -468,14 +586,14 @@ void FlxSound::updateTransform()
     
     if (isStream)
         Mix_VolumeMusic(static_cast<int>(volume * MIX_MAX_VOLUME));
-    else if (chunk)
-        Mix_VolumeChunk(chunk, static_cast<int>(volume * MIX_MAX_VOLUME));
+    else if (channel >= 0)
+        Mix_Volume(channel, static_cast<int>(volume * MIX_MAX_VOLUME));
 
-    if (!isStream && chunk)
+    if (!isStream && channel >= 0 && chunk)
     {
         int leftVol = static_cast<int>(volume * MIX_MAX_VOLUME * (1.0f - _pan));
         int rightVol = static_cast<int>(volume * MIX_MAX_VOLUME * (1.0f + _pan));
-        Mix_SetPanning(-1, leftVol, rightVol);
+        Mix_SetPanning(channel, leftVol, rightVol);
     }
 }
 
@@ -496,6 +614,8 @@ void FlxSound::startSound(float startTime)
 
     _time = startTime;
     _paused = false;
+    paused = false;
+    playing = true;
 
     if (isStream)
     {
@@ -504,7 +624,16 @@ void FlxSound::startSound(float startTime)
     }
     else
     {
-        Mix_PlayChannel(-1, chunk, get_looped() ? -1 : 0);
+        int channelToUse = (reservedChannel >= 0) ? reservedChannel : -1;
+#ifdef __SWITCH__
+        channel = Mix_PlayChannelTimed(channelToUse, chunk, get_looped() ? -1 : 0, -1);
+#else
+        channel = Mix_PlayChannel(channelToUse, chunk, get_looped() ? -1 : 0);
+#endif
+        if (channel == -1) {
+            std::cerr << "Failed to play sound: " << Mix_GetError() << std::endl;
+            playing = false;
+        }
     }
 
     active = true;
@@ -525,4 +654,9 @@ void FlxSound::stopped()
 }
 
 void FlxSound::gotID3() {}
+
+void FlxSound::setChannel(int channelToUse) {
+    reservedChannel = channelToUse;
+}
+
 }

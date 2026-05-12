@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <string>
 #include <functional>
 
@@ -31,6 +31,9 @@ public:
     void setUpdateFramerate(int fps);
     int getDrawFramerate() const { return drawFramerate; }
     void setDrawFramerate(int fps);
+    
+    static bool isMuted() { return muted; }
+    static void toggleMute();
 
 protected:
     FlxState* currentState;
@@ -51,5 +54,8 @@ protected:
 
     void handleEvents();
     void calculateElapsed();
+    
+    static bool muted;
+    static bool zeroKeyPressed;
 };
 }

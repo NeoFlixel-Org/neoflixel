@@ -2,7 +2,7 @@
 
 #include "FlxBasic.h"
 #include "util/FlxAxes.h"
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <string>
 #include "math/FlxPoint.h"
 #include "FlxCamera.h"
@@ -73,6 +73,7 @@ public:
     CollisionDragType collisionYDrag;
 
     FlxPoint scrollFactor;
+    FlxCamera* camera;
 
     virtual void update(float elapsed);
     virtual void draw();
@@ -80,8 +81,23 @@ public:
     virtual void kill();
     virtual void revive();
     virtual void reset(float x, float y);
-    virtual void setPosition(float x, float y);
-    virtual void setSize(float width, float height);
+    
+    inline void setPosition(float x, float y) {
+        this->x = x;
+        this->y = y;
+    }
+    
+    inline void setSize(float width, float height) {
+        this->width = width;
+        this->height = height;
+    }
+    
+    inline FlxPoint getMidpoint() const {
+        float midX = x + width * 0.5f;
+        float midY = y + height * 0.5f;
+        return FlxPoint(midX, midY);
+    }
+    
     virtual void setHitbox(float width, float height, float offsetX = 0, float offsetY = 0);
     virtual void updateHitbox();
     virtual void centerOrigin();

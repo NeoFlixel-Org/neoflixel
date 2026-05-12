@@ -8,7 +8,7 @@
 #include "math/FlxRect.h"
 #include "util/FlxAxes.h"
 #include "util/FlxColor.h"
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <algorithm>
 #include <cmath>
 
@@ -44,10 +44,18 @@ FlxCamera::FlxCamera(float x, float y, int width, int height, float zoom)
     _helperMatrix = math::FlxMatrix();
     _blitMatrix = math::FlxMatrix();
 
+    /*
     _fill = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 1, 1);
+    fprintf(stderr, "[CAM] _fill=%p err=%s\n", (void*)_fill, SDL_GetError()); fflush(stderr);
     if (_fill) {
         SDL_SetTextureBlendMode(_fill, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderTarget(renderer, _fill);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderClear(renderer);
+        SDL_SetRenderTarget(renderer, nullptr);
     }
+    */
+   _fill = nullptr;
 
     if (zoom == 0) {
         zoom = defaultZoom;
@@ -67,7 +75,9 @@ FlxCamera::FlxCamera(float x, float y, int width, int height, float zoom)
 
     pixelPerfectRender = false; // todo: perfect my pixels...
 
-    buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+    //buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+    buffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    fprintf(stderr, "[CAM] buffer=%p err=%s\n", (void*)buffer, SDL_GetError()); fflush(stderr);
 
     color = util::FlxColor::WHITE;
     this->zoom = initialZoom = zoom;
@@ -119,10 +129,6 @@ void FlxCamera::update(float elapsed) {
     updateFlash(elapsed);
     updateFade(elapsed);
 
-    if (filtersEnabled && !filters.empty()) {
-        // todo: filter shit lmao!
-    }
-
     updateFlashSpritePosition();
     updateShake(elapsed);
 }
@@ -132,13 +138,17 @@ void FlxCamera::updateScroll() {
 }
 
 void FlxCamera::bindScrollPos(FlxPoint& scrollPos) {
-    float minX = (minScrollX == 0) ? 0 : minScrollX - getViewMarginLeft();
-    float maxX = (maxScrollX == 0) ? 0 : maxScrollX - getViewMarginRight();
-    float minY = (minScrollY == 0) ? 0 : minScrollY - getViewMarginTop();
-    float maxY = (maxScrollY == 0) ? 0 : maxScrollY - getViewMarginBottom();
-
-    scrollPos.x = std::clamp(scrollPos.x, minX, maxX);
-    scrollPos.y = std::clamp(scrollPos.y, minY, maxY);
+    if (minScrollX != 0 || maxScrollX != 0) {
+        float minX = minScrollX - getViewMarginLeft();
+        float maxX = maxScrollX - getViewMarginRight();
+        scrollPos.x = std::clamp(scrollPos.x, minX, maxX);
+    }
+    
+    if (minScrollY != 0 || maxScrollY != 0) {
+        float minY = minScrollY - getViewMarginTop();
+        float maxY = maxScrollY - getViewMarginBottom();
+        scrollPos.y = std::clamp(scrollPos.y, minY, maxY);
+    }
 }
 
 void FlxCamera::updateFollow() {
@@ -187,16 +197,14 @@ void FlxCamera::updateFollow() {
             }
         }
 
-        if (dynamic_cast<FlxSprite*>(target) != nullptr) {
-            if (_lastTargetPosition.x == 0 && _lastTargetPosition.y == 0) {
-                _lastTargetPosition.set(target->x, target->y);
-            }
-            _scrollTarget.x += (target->x - _lastTargetPosition.x) * followLead.x;
-            _scrollTarget.y += (target->y - _lastTargetPosition.y) * followLead.y;
-
-            _lastTargetPosition.x = target->x;
-            _lastTargetPosition.y = target->y;
+        if (_lastTargetPosition.x == 0 && _lastTargetPosition.y == 0) {
+            _lastTargetPosition.set(target->x, target->y);
         }
+        _scrollTarget.x += (target->x - _lastTargetPosition.x) * followLead.x;
+        _scrollTarget.y += (target->y - _lastTargetPosition.y) * followLead.y;
+
+        _lastTargetPosition.x = target->x;
+        _lastTargetPosition.y = target->y;
     }
 }
 
@@ -296,7 +304,7 @@ void FlxCamera::updateShake(float elapsed) {
                 if (pixelPerfect) {
                     shakePixels = std::round(shakePixels);
                 }
-                x += shakePixels * zoom;
+                scroll.x += shakePixels * zoom;
             }
             
             if (static_cast<int>(_fxShakeAxes) & static_cast<int>(util::FlxAxes::Y)) {
@@ -304,7 +312,7 @@ void FlxCamera::updateShake(float elapsed) {
                 if (pixelPerfect) {
                     shakePixels = std::round(shakePixels);
                 }
-                y += shakePixels * zoom;
+                scroll.y += shakePixels * zoom;
             }
         }
     }
@@ -428,41 +436,37 @@ FlxCamera& FlxCamera::copyFrom(const FlxCamera& camera) {
 }
 
 void FlxCamera::fill(util::FlxColor color, bool blendAlpha, float fxAlpha) {
-    if (!renderer || !_fill) return;
+    if (!renderer) return;
 
-    SDL_SetTextureColorMod(_fill, color.red(), color.green(), color.blue());
+    float colorAlphaFloat = static_cast<float>(color.alpha()) / 255.0f;
+    float finalAlphaFloat = colorAlphaFloat * fxAlpha;
+    Uint8 finalAlpha = static_cast<Uint8>(finalAlphaFloat * 255.0f);
     
     if (blendAlpha) {
-        SDL_SetTextureAlphaMod(_fill, static_cast<Uint8>(color.alpha() * fxAlpha * 255));
-        SDL_SetTextureBlendMode(_fill, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     } else {
-        SDL_SetTextureAlphaMod(_fill, 255);
-        SDL_SetTextureBlendMode(_fill, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     }
-
+    
+    SDL_SetRenderDrawColor(renderer, color.red(), color.green(), color.blue(), finalAlpha);
+    
     SDL_Rect dest = {
-        static_cast<int>(x),
-        static_cast<int>(y),
-        width,
-        height
+        -1,
+        -1,
+        FlxG::width + 2,
+        FlxG::height + 2
     };
 
-    SDL_RenderCopy(renderer, _fill, nullptr, &dest);
+    SDL_RenderFillRect(renderer, &dest);
 }
 
 void FlxCamera::drawFX() {
     if (_fxFlashAlpha > 0.0f) {
-        util::FlxColor flashColor = _fxFlashColor;
-        Uint8 alpha = static_cast<Uint8>(flashColor.alpha() * _fxFlashAlpha);
-        flashColor.setAlpha(alpha);
-        fill(flashColor);
+        fill(_fxFlashColor, true, _fxFlashAlpha);
     }
 
     if (_fxFadeAlpha > 0.0f) {
-        util::FlxColor fadeColor = _fxFadeColor;
-        Uint8 alpha = static_cast<Uint8>(fadeColor.alpha() * _fxFadeAlpha);
-        fadeColor.setAlpha(alpha);
-        fill(fadeColor);
+        fill(_fxFadeColor, true, _fxFadeAlpha);
     }
 }
 
@@ -474,6 +478,13 @@ void FlxCamera::checkResize() {
         _flashRect.h = height;
         SDL_DestroyTexture(_fill);
         _fill = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+        if (_fill) {
+            SDL_SetTextureBlendMode(_fill, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderTarget(renderer, _fill);
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_RenderClear(renderer);
+            SDL_SetRenderTarget(renderer, nullptr);
+        }
         updateBlitMatrix();
     }
 }

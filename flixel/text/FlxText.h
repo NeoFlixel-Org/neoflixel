@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../FlxSprite.h"
-#include <SDL2/SDL_ttf.h>
+#include <SDL_ttf.h>
 #include <string>
 #include <vector>
 
@@ -61,6 +61,8 @@ public:
     void updateHitbox() override;
 
     void screenCenter();
+    
+    SDL_Texture* getTexture();
 
 private:
     void regenGraphic();

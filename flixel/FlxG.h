@@ -1,22 +1,28 @@
 #pragma once
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
-#include <SDL2/SDL_mixer.h>
-#include <SDL2/SDL_ttf.h>
+#include <SDL.h>
+#include <SDL_image.h>
+#include <SDL_mixer.h>
+#include <SDL_ttf.h>
 #include <string>
-#include "../imports.h"
+#include "imports.h"
 #include "math/FlxRect.h"
 #include "FlxCamera.h"
 #include <vector>
 #include <memory>
+#include <unordered_map>
 #include "sound/FlxSound.h"
 #include "sound/FlxSoundGroup.h"
 #include "input/FlxKeyboard.h"
+#include "input/FlxGamepad.h"
 
 namespace flixel {
 
 class FlxGame;
+
+namespace util {
+    class FlxTimerManager;
+}
 
 namespace system {
 namespace frontEnds {
@@ -32,6 +38,7 @@ public:
 
     FlxSound* load(const std::string& path, bool looped = false, bool autoDestroy = true);
     FlxSound* play(const std::string& path, float volume = 1.0f, bool looped = false, bool autoDestroy = true);
+    FlxSound* playAsChunk(const std::string& path, float volume = 1.0f, bool looped = false, bool autoDestroy = true);
     void stop(const std::string& path);
     void pause(const std::string& path);
     void resume(const std::string& path);
@@ -100,6 +107,8 @@ public:
 
         FlxSound* load(const std::string& path, bool looped = false, bool autoDestroy = true);
         FlxSound* play(const std::string& path, float volume = 1.0f, bool looped = false, bool autoDestroy = true);
+        FlxSound* playAsChunk(const std::string& path, float volume = 1.0f, bool looped = false, bool autoDestroy = true);
+        FlxSound* playMusic(const std::string& path, float volume = 1.0f, bool looped = true);
         void stop(const std::string& path);
         void pause(const std::string& path);
         void resume(const std::string& path);
@@ -114,6 +123,7 @@ public:
         float volume;
         bool muted;
         std::string defaultGroup;
+        std::unique_ptr<FlxSound> music;
 
     private:
         std::vector<std::unique_ptr<FlxSound>> sounds;
@@ -140,6 +150,8 @@ public:
     static void setFullscreen(bool fullscreen);
     
     static SDL_Texture* loadTexture(const std::string& path);
+    static SDL_Texture* loadTextureCached(const std::string& path);
+    static void clearTextureCache();
     static Mix_Chunk* loadSound(const std::string& path);
     static TTF_Font* loadFont(const std::string& path, int size);
 
@@ -150,10 +162,13 @@ public:
     static bool isCursorVisible();
 
     static flixel::input::FlxKeyboard keys;
+    static flixel::input::FlxGamepad gamepads;
+    static flixel::util::FlxTimerManager* timers;
 
 private:
     static SDL_Cursor* customCursor;
     static SDL_Surface* cursorSurface;
     static bool cursorVisible;
+    static std::unordered_map<std::string, SDL_Texture*> textureCache;
 };
 }

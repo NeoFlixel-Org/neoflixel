@@ -1,9 +1,17 @@
 #include "FlxGame.h"
 #include "FlxG.h"
 #include "FlxState.h"
+#include "FlxCamera.h"
+#include "tweens/FlxTween.h"
+#include "util/FlxTimer.h"
+#include <SDL_mixer.h>
 #include <stdexcept>
+#include <iostream>
 
 namespace flixel {
+
+bool FlxGame::muted = false;
+bool FlxGame::zeroKeyPressed = false;
 
 FlxGame::FlxGame(int gameWidth, int gameHeight, int updateFramerate, int drawFramerate, const std::string& title)
     : currentState(nullptr)
@@ -26,29 +34,34 @@ FlxGame::FlxGame(int gameWidth, int gameHeight, int updateFramerate, int drawFra
     }
 
     FlxG::init(this, width, height);
+    tweens::init();
 }
 
 FlxGame::~FlxGame() {
     if (currentState) {
         delete currentState;
     }
+    tweens::cleanup();
     FlxG::destroy();
 }
 
 void FlxGame::run() {
     running = true;
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {}
+    fprintf(stderr, "[CHECKPOINT] run() started, entering loop\n"); fflush(stderr);
     Uint32 lastTime = SDL_GetTicks();
     Uint32 currentTime;
     float deltaTime;
 
     while (running) {
+        fprintf(stderr, "[LOOP] top, running=%d\n", running); fflush(stderr);
         currentTime = SDL_GetTicks();
         deltaTime = (currentTime - lastTime) / 1000.0f;
         lastTime = currentTime;
 
         handleEvents();
-
-        flixel::FlxG::keys.update();
+        fprintf(stderr, "[LOOP] after handleEvents, running=%d\n", running); fflush(stderr);
 
         if (FlxG::fixedTimestep) {
             accumulator += deltaTime * 1000.0f;
@@ -56,19 +69,39 @@ void FlxGame::run() {
                 accumulator = maxAccumulation;
             }
 
-            while (accumulator >= stepMS) {
-                update(stepSeconds);
-                accumulator -= stepMS;
-            }
-        } else {
-            update(deltaTime);
+        while (accumulator >= stepMS) {
+            flixel::FlxG::keys.update();
+            flixel::FlxG::gamepads.update();
+            update(stepSeconds);
+            accumulator -= stepMS;
         }
+    } else {
+        flixel::FlxG::keys.update();
+        flixel::FlxG::gamepads.update();
+        update(deltaTime);
+    }
 
         draw();
     }
 }
 
 void FlxGame::update(float elapsed) {
+    fprintf(stderr, "[UPDATE] called\n"); fflush(stderr);
+    const Uint8* keystate = SDL_GetKeyboardState(nullptr);
+    if (keystate[SDL_SCANCODE_0]) {
+        if (!zeroKeyPressed) {
+            toggleMute();
+            zeroKeyPressed = true;
+        }
+    } else {
+        zeroKeyPressed = false;
+    }
+    
+    if (muted) {
+        Mix_Volume(-1, 0);
+        Mix_VolumeMusic(0);
+    }
+    
     if (nextState) {
         if (currentState) {
             currentState->destroy();
@@ -76,7 +109,11 @@ void FlxGame::update(float elapsed) {
         }
         currentState = nextState;
         nextState = nullptr;
+        FlxG::keys.reset();
+        FlxG::gamepads.reset();
+        fprintf(stderr, "[UPDATE] calling state create()\n"); fflush(stderr);
         currentState->create();
+        fprintf(stderr, "[UPDATE] create() returned\n"); fflush(stderr);
     }
 
     if (!currentState) {
@@ -84,9 +121,22 @@ void FlxGame::update(float elapsed) {
     }
 
     currentState->update(elapsed);
+    
+    if (FlxG::camera) {
+        FlxG::camera->update(elapsed);
+    }
+    
+    if (tweens::globalManager) {
+        tweens::globalManager->update(elapsed);
+    }
+    
+    if (FlxG::timers) {
+        FlxG::timers->update(elapsed);
+    }
 }
 
 void FlxGame::draw() {
+        fprintf(stderr, "[DRAW] called, currentState=%p renderer=%p\n", (void*)currentState, (void*)FlxG::renderer); fflush(stderr);
     if (!currentState) {
         return;
     }
@@ -95,6 +145,10 @@ void FlxGame::draw() {
     SDL_RenderClear(FlxG::renderer);
 
     currentState->draw();
+
+    if (FlxG::camera) {
+        FlxG::camera->drawFX();
+    }
 
     SDL_RenderPresent(FlxG::renderer);
 }
@@ -132,6 +186,7 @@ void FlxGame::handleEvents() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         flixel::FlxG::keys.onEvent(event);
+        flixel::FlxG::gamepads.onEvent(event);
 
         switch (event.type) {
             case SDL_QUIT:
@@ -145,9 +200,6 @@ void FlxGame::handleEvents() {
                 break;
 
             case SDL_KEYDOWN:
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    running = false;
-                }
                 break;
         }
     }
@@ -168,6 +220,20 @@ void FlxGame::setTitle(const std::string& title) {
     windowTitle = title;
     if (FlxG::window) {
         SDL_SetWindowTitle(FlxG::window, title.c_str());
+    }
+}
+
+void FlxGame::toggleMute() {
+    muted = !muted;
+    
+    if (muted) {
+        Mix_Volume(-1, 0);
+        Mix_VolumeMusic(0);
+        std::cout << "[Audio] Muted all audio" << std::endl;
+    } else {
+        Mix_Volume(-1, MIX_MAX_VOLUME);
+        Mix_VolumeMusic(MIX_MAX_VOLUME);
+        std::cout << "[Audio] Unmuted all audio" << std::endl;
     }
 }
 }

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <vector>
 #include <memory>
-#include "../imports.h"
+#include "imports.h"
 
 namespace flixel {
 

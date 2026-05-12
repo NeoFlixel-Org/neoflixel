@@ -1,10 +1,12 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "FlxText.h"
 #include "../FlxG.h"
-#include <SDL2/SDL_ttf.h>
+#include <SDL_ttf.h>
 #include <algorithm>
 #include <iostream>
 #include <cstdio>
 #include <cerrno>
+#include <vector>
 
 namespace flixel {
 
@@ -272,10 +274,70 @@ void FlxText::regenGraphic() {
         static_cast<Uint8>((color >> 24) & 0xFF)
     };
     
-    if (wordWrap && fieldWidth > 0) {
-        textSurface = TTF_RenderText_Blended_Wrapped(font, text.c_str(), textColor, static_cast<Uint32>(fieldWidth));
+    bool hasNewlines = text.find('\n') != std::string::npos;
+    
+    if (hasNewlines) {
+        std::vector<std::string> lines;
+        std::string currentLine;
+        for (char c : text) {
+            if (c == '\n') {
+                lines.push_back(currentLine.empty() ? " " : currentLine);
+                currentLine.clear();
+            } else {
+                currentLine += c;
+            }
+        }
+        if (!currentLine.empty() || lines.empty()) {
+            lines.push_back(currentLine.empty() ? " " : currentLine);
+        }
+        
+        std::vector<SDL_Surface*> lineSurfaces;
+        int totalWidth = 0;
+        int totalHeight = 0;
+        
+        for (const auto& line : lines) {
+            SDL_Surface* lineSurface = TTF_RenderText_Blended(font, line.c_str(), textColor);
+            if (lineSurface) {
+                lineSurfaces.push_back(lineSurface);
+                totalWidth = std::max(totalWidth, lineSurface->w);
+                totalHeight += lineSurface->h;
+            }
+        }
+        
+        if (lineSurfaces.empty()) {
+            std::cout << "Failed to render text: " << TTF_GetError() << std::endl;
+            return;
+        }
+        
+        textSurface = SDL_CreateRGBSurface(0, totalWidth, totalHeight, 32, 
+                                            0xFF000000, 0x00FF0000, 0x0000FF00, 0x000000FF);
+        
+        if (!textSurface) {
+            for (auto* surf : lineSurfaces) {
+                SDL_FreeSurface(surf);
+            }
+            std::cout << "Failed to create combined surface: " << SDL_GetError() << std::endl;
+            return;
+        }
+        
+        SDL_SetSurfaceBlendMode(textSurface, SDL_BLENDMODE_BLEND);
+        
+        SDL_FillRect(textSurface, nullptr, SDL_MapRGBA(textSurface->format, 0, 0, 0, 0));
+        
+        int yOffset = 0;
+        for (auto* lineSurface : lineSurfaces) {
+            SDL_Rect destRect = {0, yOffset, lineSurface->w, lineSurface->h};
+            SDL_SetSurfaceBlendMode(lineSurface, SDL_BLENDMODE_NONE);
+            SDL_BlitSurface(lineSurface, nullptr, textSurface, &destRect);
+            yOffset += lineSurface->h;
+            SDL_FreeSurface(lineSurface);
+        }
     } else {
-        textSurface = TTF_RenderText_Blended(font, text.c_str(), textColor);
+        if (wordWrap && fieldWidth > 0) {
+            textSurface = TTF_RenderText_Blended_Wrapped(font, text.c_str(), textColor, static_cast<Uint32>(fieldWidth));
+        } else {
+            textSurface = TTF_RenderText_Blended(font, text.c_str(), textColor);
+        }
     }
     
     if (!textSurface) {
@@ -340,7 +402,7 @@ void FlxText::applyBorderStyle() {
                 for (int i = 0; i < borderSurface->w * borderSurface->h; i++) {
                     Uint8 alpha = (pixels[i] >> 24) & 0xFF;
                     if (alpha > 0) {
-                        pixels[i] = (alpha << 24) | (borderColor.r << 16) | (borderColor.g << 8) | borderColor.b;
+                        pixels[i] = (alpha << 24) | (borderColor.b << 16) | (borderColor.g << 8) | borderColor.r;
                     }
                 }
                 SDL_UnlockSurface(borderSurface);
@@ -387,7 +449,7 @@ void FlxText::applyBorderStyle() {
                 for (int i = 0; i < borderSurface->w * borderSurface->h; i++) {
                     Uint8 alpha = (pixels[i] >> 24) & 0xFF;
                     if (alpha > 0) {
-                        pixels[i] = (alpha << 24) | (borderColor.r << 16) | (borderColor.g << 8) | borderColor.b;
+                        pixels[i] = (alpha << 24) | (borderColor.b << 16) | (borderColor.g << 8) | borderColor.r;
                     }
                 }
                 SDL_UnlockSurface(borderSurface);
@@ -440,6 +502,13 @@ void FlxText::screenCenter() {
     float widthToUse = fieldWidth > 0 ? fieldWidth : width;
     x = (FlxG::width - widthToUse) / 2;
     y = (FlxG::height - height) / 2;
+}
+
+SDL_Texture* FlxText::getTexture() {
+    if (needsUpdate) {
+        regenGraphic();
+    }
+    return textTexture;
 }
 
 } 
