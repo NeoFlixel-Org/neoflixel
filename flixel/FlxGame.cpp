@@ -50,19 +50,16 @@ void FlxGame::run() {
     running = true;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {}
-    fprintf(stderr, "[CHECKPOINT] run() started, entering loop\n"); fflush(stderr);
     Uint32 lastTime = SDL_GetTicks();
     Uint32 currentTime;
     float deltaTime;
 
     while (running) {
-        fprintf(stderr, "[LOOP] top, running=%d\n", running); fflush(stderr);
         currentTime = SDL_GetTicks();
         deltaTime = (currentTime - lastTime) / 1000.0f;
         lastTime = currentTime;
 
         handleEvents();
-        fprintf(stderr, "[LOOP] after handleEvents, running=%d\n", running); fflush(stderr);
 
         if (FlxG::fixedTimestep) {
             accumulator += deltaTime * 1000.0f;
@@ -87,7 +84,6 @@ void FlxGame::run() {
 }
 
 void FlxGame::update(float elapsed) {
-    fprintf(stderr, "[UPDATE] called\n"); fflush(stderr);
     const Uint8* keystate = SDL_GetKeyboardState(nullptr);
     if (keystate[SDL_SCANCODE_0]) {
         if (!zeroKeyPressed) {
@@ -141,7 +137,6 @@ void FlxGame::update(float elapsed) {
 }
 
 void FlxGame::draw() {
-        fprintf(stderr, "[DRAW] called, currentState=%p renderer=%p\n", (void*)currentState, (void*)FlxG::renderer); fflush(stderr);
     if (!currentState) {
         return;
     }

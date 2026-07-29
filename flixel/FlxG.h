@@ -1,4 +1,5 @@
 #pragma once
+#define ASSETS_PATH ""
 
 #include <SDL.h>
 #include <SDL_image.h>

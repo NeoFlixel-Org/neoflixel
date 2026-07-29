@@ -1,6 +1,7 @@
 #include "FlxGamepad.h"
 #include <iostream>
-#include "../../imports.h" // me when
+#include <SDL2/SDL.h>
+#include "../FlxG.h"
 
 namespace flixel {
 namespace input {
