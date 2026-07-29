@@ -238,6 +238,8 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
         throw std::runtime_error("Failed to initialize SDL: " + std::string(SDL_GetError()));
     }
 
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+
     int imgFlags = IMG_INIT_PNG | IMG_INIT_JPG;
     if (!(IMG_Init(imgFlags) & imgFlags)) {
         throw std::runtime_error("Failed to initialize SDL_image: " + std::string(IMG_GetError()));
@@ -278,7 +280,7 @@ void FlxG::init(FlxGame* gameInstance, int gameWidth, int gameHeight) {
     }
     
     SDL_RenderSetLogicalSize(renderer, width, height);
-    SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
+    SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
 
     try {
         setCursor(ASSETS_PATH "assets/images/ui/cursor.png", 0, 0);
@@ -315,7 +317,15 @@ void FlxG::reset() {
     sound.reset();
 }
 
-void FlxG::resizeGame(int newWidth, int newHeight) {}
+void FlxG::resizeGame(int newWidth, int newHeight) {
+    width = newWidth;
+    height = newHeight;
+    worldBounds = {0, 0, static_cast<float>(newWidth), static_cast<float>(newHeight)};
+
+    if (renderer) {
+        SDL_RenderSetLogicalSize(renderer, newWidth, newHeight);
+    }
+}
 
 void FlxG::resizeWindow(int newWidth, int newHeight) {
     SDL_SetWindowSize(window, newWidth, newHeight);
