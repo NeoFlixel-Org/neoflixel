@@ -1,6 +1,7 @@
 #include "FlxGame.h"
 #include "FlxG.h"
 #include "FlxState.h"
+#include "FlxBasic.h"
 #include "FlxCamera.h"
 #include "tweens/FlxTween.h"
 #include "util/FlxTimer.h"
@@ -133,6 +134,10 @@ void FlxGame::update(float elapsed) {
     if (FlxG::timers) {
         FlxG::timers->update(elapsed);
     }
+
+    if (overlay) {
+        overlay->update(elapsed);
+    }
 }
 
 void FlxGame::draw() {
@@ -148,6 +153,10 @@ void FlxGame::draw() {
 
     if (FlxG::camera) {
         FlxG::camera->drawFX();
+    }
+
+    if (overlay) {
+        overlay->draw();
     }
 
     SDL_RenderPresent(FlxG::renderer);

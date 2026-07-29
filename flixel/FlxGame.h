@@ -8,6 +8,7 @@ namespace flixel {
 
 class FlxState;
 class FlxG;
+class FlxBasic;
 
 class FlxGame {
     friend class FlxG;
@@ -35,9 +36,13 @@ public:
     static bool isMuted() { return muted; }
     static void toggleMute();
 
+    void setOverlay(FlxBasic* overlayObject) { overlay = overlayObject; }
+    FlxBasic* getOverlay() const { return overlay; }
+
 protected:
     FlxState* currentState;
     FlxState* nextState;
+    FlxBasic* overlay = nullptr;
 
     int updateFramerate;
     int drawFramerate;
