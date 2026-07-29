@@ -1,6 +1,6 @@
 #include "FlxGamepad.h"
 #include <iostream>
-#include "../../../Funkin/imports.h" // me when
+#include "../../imports.h" // me when
 
 namespace flixel {
 namespace input {
